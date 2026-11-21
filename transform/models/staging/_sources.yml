@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Files loaded as-is from the ingestion scripts.
+    tables:
+      - name: observations
+        description: >
+          15-minute temperature records from the Toulouse Métropole stations,
+          exactly as published (including -50 °C readings and duplicates).

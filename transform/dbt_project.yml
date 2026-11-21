@@ -1,0 +1,8 @@
+name: toulouse_weather
+version: "0.1.0"
+profile: toulouse_weather
+
+models:
+  toulouse_weather:
+    staging:
+      +materialized: view

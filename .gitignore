@@ -1,3 +1,9 @@
 .venv/
 __pycache__/
 data/
+
+# dbt build output
+transform/target/
+transform/logs/
+transform/dbt_packages/
+transform/.user.yml

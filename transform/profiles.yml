@@ -1,0 +1,12 @@
+# Connection settings. No secrets here: "oauth" uses your own Google login,
+# set up once with `gcloud auth application-default login`.
+toulouse_weather:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: toulouse-weather-demo
+      dataset: analytics
+      location: EU
+      threads: 4

@@ -1,0 +1,25 @@
+version: 2
+
+models:
+  - name: stg_observations
+    description: >
+      Cleaned station temperatures, one row per station and 15-minute slot.
+      Readings of exactly -50 °C, a value flagged during profiling, are
+      removed, and duplicate readings for the same slot are averaged.
+    columns:
+      - name: station_id
+        description: Toulouse Métropole station number.
+        data_tests:
+          - not_null
+      - name: observed_at
+        description: End of the 15-minute measurement window, in UTC.
+        data_tests:
+          - not_null
+      - name: temperature_c
+        description: Mean air temperature over the previous 15 minutes, in °C.
+        data_tests:
+          - not_null
+      - name: reading_count
+        description: Number of valid readings that contribute to this row after the -50 °C filter. Can be greater than two.
+        data_tests:
+          - not_null
