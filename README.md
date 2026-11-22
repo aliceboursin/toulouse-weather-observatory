@@ -1,6 +1,6 @@
-# Toulouse Data
+# Toulouse Weather Observatory
 
-Toulouse Data measures how accurate temperature forecasts are for Toulouse, per weather station and per lead time (1 to 7 days ahead).
+Toulouse Weather Observatory measures how accurate temperature forecasts are for Toulouse, per weather station and per lead time (1 to 7 days ahead).
 
 It uses two public sources:
 
