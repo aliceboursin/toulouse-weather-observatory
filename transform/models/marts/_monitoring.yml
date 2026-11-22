@@ -1,0 +1,123 @@
+version: 2
+
+models:
+  - name: station_monitoring
+    description: >
+      One row per station with its latest valid reading, recent coverage,
+      flagged readings and a status. Measured against collected_at, the time
+      the observations were fetched: the data is a snapshot, not a live feed.
+      Status thresholds, first match wins: no valid reading in the 24 hours
+      before collection; latest valid reading more than 2 hours before
+      collection; at least one flagged (-50 °C) reading in those 24 hours;
+      coverage below 80% in those 24 hours; otherwise OK.
+    columns:
+      - name: station_id
+        description: Toulouse Métropole station number.
+        data_tests:
+          - not_null
+          - unique
+      - name: station_label
+        description: Readable station label from stg_stations.
+        data_tests:
+          - not_null
+      - name: collected_at
+        description: When the observations were fetched from the source, in UTC. The same on every row.
+        data_tests:
+          - not_null
+      - name: latest_valid_reading_at
+        description: Timestamp of the station's latest valid reading, in UTC. Null if it has none.
+      - name: latest_valid_temperature_c
+        description: Temperature of the latest valid reading, in °C.
+      - name: hours_since_latest_valid_reading
+        description: Hours between the latest valid reading and collected_at.
+      - name: valid_readings_24h
+        description: Valid readings in the 24 hours before collected_at, out of 96 expected.
+      - name: coverage_rate_24h
+        description: valid_readings_24h divided by 96.
+      - name: coverage_rate_7d
+        description: Valid readings in the 7 days before collected_at, divided by 672.
+      - name: flagged_readings_24h
+        description: Readings of exactly -50 °C in the 24 hours before collected_at.
+      - name: flagged_readings_7d
+        description: Readings of exactly -50 °C in the 7 days before collected_at.
+      - name: flagged_readings_total
+        description: Readings of exactly -50 °C in the whole loaded window.
+      - name: longest_gap_hours
+        description: Length of the station's longest missing interval in the loaded window, in hours.
+      - name: status
+        description: "'OK', or 'Check station: ...' with the reason."
+        data_tests:
+          - not_null
+      - name: needs_check
+        description: True when the status is not OK.
+        data_tests:
+          - not_null
+      - name: status_rank
+        description: 1 (most severe) to 5 (OK), for sorting.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+                quote: false
+
+  - name: station_observation_gaps
+    description: >
+      Missing intervals: every run of consecutive 15-minute slots with no
+      valid reading, per station, from the start of the loaded window to the
+      time the observations were collected.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [station_id, gap_start]
+    columns:
+      - name: station_id
+        description: Toulouse Métropole station number.
+        data_tests:
+          - not_null
+      - name: station_label
+        description: Readable station label from stg_stations.
+      - name: gap_start
+        description: First missing 15-minute slot, in UTC.
+        data_tests:
+          - not_null
+      - name: gap_end
+        description: Last missing 15-minute slot, in UTC.
+        data_tests:
+          - not_null
+      - name: missing_readings
+        description: Number of missing 15-minute slots in the gap.
+      - name: gap_hours
+        description: Length of the gap in hours.
+      - name: is_ongoing
+        description: True if the gap reaches the collection time, so the station had not reported again.
+
+  - name: station_daily_observations
+    description: >
+      Reporting history: valid and flagged readings per station and UTC day,
+      against the number of 15-minute slots expected that day. The last day
+      only expects slots up to the collection time.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [station_id, day]
+    columns:
+      - name: station_id
+        description: Toulouse Métropole station number.
+        data_tests:
+          - not_null
+      - name: station_label
+        description: Readable station label from stg_stations.
+      - name: day
+        description: UTC day.
+        data_tests:
+          - not_null
+      - name: expected_readings
+        description: Number of 15-minute slots expected that day (96, fewer on the collection day).
+      - name: valid_readings
+        description: Valid readings that day (after the -50 °C filter and deduplication).
+      - name: flagged_readings
+        description: Readings of exactly -50 °C that day.
+      - name: missing_readings
+        description: expected_readings minus valid_readings.
+      - name: daily_coverage_rate
+        description: valid_readings divided by expected_readings.

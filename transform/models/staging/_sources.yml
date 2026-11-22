@@ -4,6 +4,8 @@ sources:
   - name: raw
     description: Files loaded as-is from the ingestion scripts.
     tables:
+      - name: stations
+        description: One row per ingested station, with its coordinates and source dataset id.
       - name: observations
         description: >
           15-minute temperature records from the Toulouse Métropole stations,

@@ -19,6 +19,12 @@ models:
         description: Forecast target hour, in UTC.
         data_tests:
           - not_null
+      - name: valid_at_local
+        description: valid_at in Toulouse local time (Europe/Paris).
+      - name: valid_date_local
+        description: Local date of valid_at. Used by date filters.
+      - name: valid_hour_local
+        description: Local hour of valid_at, 0 to 23.
       - name: lead_days
         description: Days between the forecast being issued and valid_at (1 to 7), or 0 for the most recent model run.
         data_tests:
@@ -55,6 +61,10 @@ models:
         description: Toulouse Métropole station number.
         data_tests:
           - not_null
+      - name: station_label
+        description: Readable station label from stg_stations, for example '11 - Toulouse Soupetard'.
+        data_tests:
+          - not_null
       - name: coverage_category
         description: >
           The observation method for hours with an observation
@@ -88,6 +98,10 @@ models:
         data_tests:
           - not_null
           - unique
+      - name: station_label
+        description: Readable station label from stg_stations, for example '11 - Toulouse Soupetard'.
+        data_tests:
+          - not_null
       - name: target_hours
         description: Number of forecast target hours for this station.
         data_tests:
@@ -124,6 +138,10 @@ models:
         description: Toulouse Métropole station number.
         data_tests:
           - not_null
+      - name: station_label
+        description: Readable station label from stg_stations, for example '11 - Toulouse Soupetard'.
+        data_tests:
+          - not_null
       - name: lead_days
         description: Days between the forecast being issued and the target hour.
         data_tests:
@@ -140,6 +158,10 @@ models:
         description: Mean of absolute_error_c, in °C. Null if there is no valid comparison.
       - name: mean_signed_error_c
         description: Mean of error_c (forecast minus observation), in °C. Positive means forecasts ran too warm.
+      - name: non_future_hours
+        description: The station's non-future target hours, from station_observation_coverage. The same on each of the station's rows.
+      - name: observation_coverage_rate
+        description: The station's observation coverage rate, from station_observation_coverage. The same on each of the station's rows.
 
   - name: current_run_reference_error
     description: >
@@ -152,6 +174,10 @@ models:
         data_tests:
           - not_null
           - unique
+      - name: station_label
+        description: Readable station label from stg_stations, for example '11 - Toulouse Soupetard'.
+        data_tests:
+          - not_null
       - name: lead_days
         description: Always 0.
         data_tests:

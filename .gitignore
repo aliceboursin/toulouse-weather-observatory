@@ -7,3 +7,6 @@ transform/target/
 transform/logs/
 transform/dbt_packages/
 transform/.user.yml
+
+# Local Metabase: JAR, its database (holds the BigQuery key), admin credentials
+.metabase/

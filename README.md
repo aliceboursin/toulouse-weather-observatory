@@ -15,6 +15,8 @@ It uses two public sources:
 | Manual load of the raw files into BigQuery | works |
 | dbt staging models `stg_observations` and `stg_forecasts`, with tests | works |
 | Forecast comparison, observation coverage and reliability summaries in dbt | works |
+| Local Metabase dashboard on the dbt views (V1) | works |
+| V2 dashboard: reliability over a selected period, temperature map, station monitoring | works |
 
 Everything has been run on one window so far, 2026-10-20 to 2026-11-19. See [Limits](#limits).
 
@@ -22,6 +24,7 @@ Everything has been run on one window so far, 2026-10-20 to 2026-11-19. See [Lim
 
 - [uv](https://docs.astral.sh/uv/). Python 3.12 or later.
 - The Google Cloud CLI (`gcloud` and `bq`), logged in with `gcloud auth login`.
+- Java 21, for the Metabase dashboard only (step 4).
 - A GCP project set as the default: `gcloud config set project toulouse-weather-demo`. The project ID `toulouse-weather-demo` is also written in `transform/profiles.yml`.
 
 The project runs in the BigQuery sandbox (no billing account). In the sandbox, tables and views expire after 60 days.
@@ -111,13 +114,14 @@ uv run dbt build --project-dir transform --profiles-dir transform
 The run ends with:
 
 ```
-Done. PASS=58 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=58
+Done. PASS=86 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=86
 ```
 
 The first run creates the `analytics` dataset in the EU. All models are views in that dataset, defined under `transform/models/`:
 
 | View | One row per | Purpose |
 |---|---|---|
+| `stg_stations` | station | station label and coordinates |
 | `stg_observations` | station and 15-minute slot | cleaned observations |
 | `stg_forecasts` | station, target hour and lead time | forecasts, with lead 0 labelled |
 | `int_station_hour_observations` | station and target hour | the observation that forecasts for that hour are compared against |
@@ -126,6 +130,13 @@ The first run creates the `analytics` dataset in the EU. All models are views in
 | `observation_coverage` | station and coverage category | distribution of target hours across categories |
 | `forecast_reliability` | station and lead time (1 to 7) | default reliability metrics |
 | `current_run_reference_error` | station | the same metrics for lead 0 |
+| `station_monitoring` | station | latest valid reading, recent coverage, flagged readings and a status |
+| `station_observation_gaps` | station and missing interval | every run of 15-minute slots with no valid reading |
+| `station_daily_observations` | station and UTC day | valid, flagged and expected readings per day |
+
+The four station-level views (`forecast_reliability`, `current_run_reference_error`, `station_observation_coverage`, `observation_coverage`) carry a `station_label` column from `stg_stations`, for example `11 - Toulouse Soupetard`. The source has no display name, so the name is derived from the source dataset id and has no accents. `forecast_reliability` also repeats the station's `non_future_hours` and `observation_coverage_rate` on each row, so a score can be read next to its coverage.
+
+`forecast_comparison` and `int_station_hour_observations` also have `valid_at_local`, `valid_date_local` and `valid_hour_local`: the target hour in Toulouse local time (Europe/Paris). The V2 date filter and the map use them.
 
 ### What `stg_observations` does
 
@@ -252,6 +263,128 @@ For the window 2026-10-20 to 2026-11-19, with all stations pooled (5,314 valid c
 | 6 | 2.31 | 0.65 |
 | 7 | 2.47 | 0.84 |
 
+## 4. Dashboard in Metabase
+
+The dashboard runs in a local Metabase (v0.65.6.3 at the time of writing). It reads the dbt views in the `analytics` dataset.
+
+### Open the dashboard
+
+Start Metabase and leave the terminal open:
+
+```
+powershell -ExecutionPolicy Bypass -File metabase\start.ps1
+```
+
+When the log shows `Metabase Initialization COMPLETE`, open http://localhost:3000/dashboard/2 and log in. The email and password of the local admin account are in `.metabase/admin-credentials.json`.
+
+Metabase stops when the terminal closes or the machine restarts. Run the same command to start it again; the dashboard, the questions and the BigQuery connection are kept in `.metabase/metabase.db.mv.db`.
+
+### What is on it
+
+The dashboard is called "Toulouse forecast reliability". Its 18 saved questions are in the "Toulouse Data" collection.
+
+| Section | Cards | Station filter |
+|---|---|---|
+| Header | data window (first and last target hour, last hour with an observation, ingestion time) | no |
+| 1. Accuracy from J1 to J7 | mean absolute error by lead time, signed bias by lead time with a zero line, table with the valid comparison count | no |
+| 2. Accuracy and availability by station | mean absolute error by station and lead time, next to comparisons per lead and coverage rate; mean absolute error and signed bias by station | yes |
+| Current-run reference (lead 0) | lead 0 mean absolute error and comparison count, lead 0 error by station | yes |
+| 3. Unavailable station-hours | coverage rate, comparable, non-future, missing and future hours; coverage by station; station-hours by coverage category | yes |
+
+The section 1 metrics pool all stations and average over individual comparisons, so each valid comparison has equal weight. Lead 0 appears only in its own section.
+
+The Station filter accepts one or several stations. The coverage rate tile recomputes as comparable hours divided by non-future hours for the selected stations.
+
+There is no date filter. The reliability and coverage views are aggregated over the whole loaded window, so a date selection could not be applied to them consistently.
+
+### Rebuild it from scratch
+
+Everything under `.metabase/` is ignored by Git. To recreate it:
+
+1. Download the Metabase JAR to `.metabase/metabase.jar` from https://downloads.metabase.com/latest/metabase.jar, then start Metabase as above.
+2. Connect BigQuery. Metabase needs a service-account key. The project has a service account for this, `metabase-reader@toulouse-weather-demo.iam.gserviceaccount.com`, with the roles BigQuery Data Viewer and BigQuery Job User. Create a key for it, then run:
+
+   ```
+   uv run python metabase/connect_bigquery.py <path-to-key.json>
+   ```
+
+   The first run also creates the local admin account. The key is stored in Metabase's database; delete the key file afterwards.
+3. Create the questions and the dashboard:
+
+   ```
+   uv run python metabase/build_dashboard.py
+   ```
+
+   The script can be run again after a change: it updates the questions and the dashboard in place.
+
+### Check it against BigQuery
+
+```
+uv run python metabase/verify_dashboard.py
+```
+
+This runs every card through Metabase, with and without `Station = 11 - Toulouse Soupetard`, prints the results and lists which cards the filter changes. For the window 2026-10-20 to 2026-11-19 it shows 5,314 valid comparisons per lead time, a mean absolute error of 1.16 °C at J1 and 2.47 °C at J7, and for station 11 a coverage rate of 3 / 732 (0.41%). The filter changes the 14 cards of sections 2, lead 0 and 3, and leaves the 4 header and section 1 cards unchanged.
+
+## 5. V2 dashboard
+
+V2 is a separate dashboard, "Toulouse forecast reliability V2", in its own collection "Toulouse Data V2". V1 is unchanged. Start Metabase as in step 4, then open http://localhost:3000/dashboard/3. It has three tabs.
+
+### Reliability
+
+Filters: Target date (a single day, a month or a custom range), Station (all stations when empty) and Time-series lead (J1 to J7, default J1).
+
+- The date filter uses the local date of the target hour (`valid_date_local`).
+- Mean absolute error, signed bias, valid comparison counts and the coverage rate are recomputed from `forecast_comparison` and `int_station_hour_observations` for the selected days and stations, with the same definitions as the dbt summary views.
+- "Forecast vs observed temperature" plots the hourly mean over the selected stations at the chosen lead. Only hours where a station has both values are averaged.
+- "Selection and loaded data" shows the loaded data range. Outside it, the status reads "No data for this selection" and the charts show "No results".
+
+### Map
+
+The map is a page generated by `metabase/build_map.py` and shown in the tab through an iframe. Metabase's own maps cannot colour a station by a value on a fixed scale, which the error view needs.
+
+- Controls: target date, local time, forecast lead (J7 to J1, with J0 apart as the current-run reference) and display mode (Forecast, Error vs observed, Observed). Each control changes one setting and keeps the others.
+- Error mode shows forecast − observed on a diverging scale centred on zero and fixed at ±6 °C, so colours are comparable across leads. Forecast and Observed use a fixed 0 to 25 °C scale.
+- A station with no observation stays on the map with a dashed outline and "n/a", and its error is listed as unavailable.
+- Clicking a station shows its forecast, observed reference, signed error and observation method.
+
+The page holds a snapshot of `forecast_comparison` taken when `build_map.py` ran. Run it again after loading new data. `metabase/start.ps1` serves the page on http://localhost:3001.
+
+### Station monitoring
+
+Everything on this tab is measured against the time the observations were collected, shown at the top with the snapshot's age. It is not live monitoring.
+
+A station's status is "Check station" when, at collection time, the first of these is true:
+
+1. no valid reading in the previous 24 hours;
+2. the latest valid reading is more than 2 hours old;
+3. at least one flagged (-50 °C) reading in the previous 24 hours;
+4. fewer than 80% of the 96 expected readings in the previous 24 hours.
+
+Otherwise the status is "OK". The thresholds are set at the top of `transform/models/marts/station_monitoring.sql`.
+
+The tab also shows 7-day coverage by station, daily coverage of the selected stations (select one station for its own reporting history), missing intervals of 1 hour or more, and flagged readings per day.
+
+### Rebuild and check V2
+
+```
+uv run python metabase/build_map.py
+uv run python metabase/build_dashboard_v2.py
+```
+
+Both can be run again after a change. To check the result:
+
+```
+uv run python metabase/verify_dashboard_v2.py
+uv run --with playwright python metabase/verify_map.py
+```
+
+`verify_dashboard_v2.py` runs the cards through Metabase under several filter settings (all data, one station, a date range, a single day, a month, a date outside the data, Soupetard on a low-coverage day) and compares them with separate queries on `forecast_comparison`. Give it a folder as an argument, with `--with playwright`, to also save browser screenshots of each tab. `verify_map.py` drives the map page in Microsoft Edge: it selects a date and 16:00, chooses J7, switches from Forecast to Error vs observed, changes to J1, and checks that the date and hour never change and that the values match BigQuery.
+
+### Not built yet
+
+- A heatwave example. The loaded window is 20 October to 19 November 2026, with no hot spell. It needs a summer window: observations from the Toulouse Métropole API (available back to 2019) and forecasts from the Previous Runs API (most models archived from January 2024), for the stations that were reporting at the time. Loading a second window also needs loads that append; `bq load --replace` keeps one window per table.
+- Automated alerts. They need fresh data first: a scheduled ingestion and load (which requires billing on the GCP project) so `collected_at` stays recent. Then a Metabase alert on a question that returns the stations to check, which requires an email (SMTP) or Slack connection in Metabase and Metabase running continuously.
+
 ## Limits
 
 - One window only. The results above come from a single 31-day load in autumn. `bq load --replace` keeps one window per table, and loading several windows is not supported yet.
@@ -260,4 +393,8 @@ For the window 2026-10-20 to 2026-11-19, with all stations pooled (5,314 valid c
 - The future/missing split relies on `ingested_at` from the forecasts. If observations and forecasts are ever ingested at different times, hours near the cutoff can be put in the wrong category.
 - Forecasts are for a model grid cell, not the station itself. The cell centre is 380 to 1,330 m from the station.
 - Lead time is in whole days. The Previous Runs API does not give the hour a forecast was issued.
+- The map page is a snapshot and needs an internet connection for the Leaflet library and the OpenStreetMap background.
+- On the night clocks go back (25 October 2026), 02:00 local time occurs twice. The map shows the first occurrence.
+- Monitoring statuses describe the stations at collection time. With a snapshot several days old they say nothing about the stations now.
+- The dashboard is local. Metabase listens on this machine only (`127.0.0.1`) and keeps its data in a local H2 file, which Metabase does not recommend for production use.
 - The models are views, and in the BigQuery sandbox they expire after 60 days. Running the dbt build again recreates them.

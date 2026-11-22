@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toulouse temperature map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root {
+    --surface: #ffffff; --surface-2: #f7f7f5; --border: #dcdbd6;
+    --text: #0b0b0b; --text-2: #52514e; --accent: #2a78d6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface); color: var(--text);
+         font: 14px/1.4 Lato, "Segoe UI", system-ui, sans-serif; }
+  .controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end;
+              padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .control { display: flex; flex-direction: column; gap: 4px; }
+  .control > span { font-size: 12px; font-weight: 700; color: var(--text-2); }
+  input[type=date], select { font: inherit; padding: 6px 8px; border: 1px solid var(--border);
+                             border-radius: 6px; background: var(--surface); color: var(--text); }
+  .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .segmented button { font: inherit; padding: 6px 10px; border: 0; border-right: 1px solid var(--border);
+                      background: var(--surface); color: var(--text); cursor: pointer; }
+  .segmented button:last-child { border-right: 0; }
+  .segmented button[aria-pressed=true] { background: var(--accent); color: #fff; font-weight: 700; }
+  .segmented button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .lead-groups { display: flex; gap: 8px; align-items: center; }
+  .summary { padding: 8px 16px; font-size: 15px; font-weight: 700; }
+  .summary small { font-weight: 400; color: var(--text-2); }
+  .notice { margin: 0 16px 8px; padding: 8px 12px; border-radius: 6px; background: var(--surface-2);
+            border: 1px solid var(--border); color: var(--text-2); }
+  .notice[hidden] { display: none; }
+  .main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; padding: 0 16px; }
+  #map { height: 480px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+  .side { display: flex; flex-direction: column; gap: 12px; }
+  .panel { border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .panel h2 { margin: 0 0 8px; font-size: 13px; color: var(--text-2); }
+  .panel dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; }
+  .panel dt { color: var(--text-2); }
+  .panel dd { margin: 0; font-weight: 700; text-align: right; }
+  .legend-bar { height: 14px; border-radius: 3px; border: 1px solid var(--border); }
+  .legend-ticks { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); margin-top: 2px; }
+  .legend-ends { display: flex; justify-content: space-between; font-size: 12px; margin-top: 4px; }
+  .legend-missing { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: var(--text-2); }
+  .swatch-missing { width: 14px; height: 14px; border-radius: 50%; border: 2px dashed #8a897f; background: #fff; }
+  table { border-collapse: collapse; width: calc(100% - 32px); margin: 12px 16px 16px; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; white-space: normal; }
+  th { font-size: 12px; color: var(--text-2); }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover, tbody tr.selected { background: var(--surface-2); }
+  .value-label { background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px;
+                 font: 700 12px/1.5 Lato, "Segoe UI", system-ui, sans-serif; color: var(--text); box-shadow: none; }
+  .value-label::before { display: none; }
+  @media (max-width: 820px) { .main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="controls">
+  <label class="control"><span>Target date</span><input type="date" id="date"></label>
+  <label class="control"><span>Local time</span><select id="hour"></select></label>
+  <div class="control"><span>Forecast lead</span>
+    <div class="lead-groups">
+      <div class="segmented" id="leads" role="group" aria-label="Forecast lead"></div>
+      <div class="segmented" id="lead0" role="group" aria-label="Current-run reference"></div>
+    </div>
+  </div>
+  <div class="control"><span>Display</span>
+    <div class="segmented" id="modes" role="group" aria-label="Display mode">
+      <button data-mode="forecast">Forecast</button>
+      <button data-mode="error">Error vs observed</button>
+      <button data-mode="observed">Observed</button>
+    </div>
+  </div>
+</div>
+<div class="summary" id="summary"></div>
+<div class="notice" id="notice" hidden></div>
+<div class="main">
+  <div id="map"></div>
+  <div class="side">
+    <div class="panel"><h2 id="legend-title"></h2>
+      <div class="legend-bar" id="legend-bar"></div>
+      <div class="legend-ticks" id="legend-ticks"></div>
+      <div class="legend-ends" id="legend-ends"></div>
+      <div class="legend-missing"><span class="swatch-missing"></span><span id="legend-missing-text"></span></div>
+    </div>
+    <div class="panel"><h2>Selected station</h2><div id="details">Click a station on the map or in the table.</div></div>
+  </div>
+</div>
+<table>
+  <thead><tr><th>Station</th><th>Forecast</th><th>Observed</th><th>Error (forecast − observed)</th><th>Observation method</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<script>
+const DATA = /*DATA*/;
+
+// Fixed scales, so colours mean the same thing at every date, hour and lead.
+const ERROR_LIMIT = 6;          // °C, diverging scale from -6 to +6, centred on 0
+const TEMP_RANGE = [0, 25];     // °C, sequential scale
+const COLD = [42, 120, 214], WARM = [227, 73, 72], NEUTRAL = [240, 239, 236];
+const TEMP_LOW = [205, 226, 251], TEMP_HIGH = [13, 54, 107];
+const METHODS = { c: "Centered 30 min", p: "Preceding 15 min", f: "Following 15 min" };
+const STATUS = { m: "No observation at this hour", u: "Hour was in the future at ingestion" };
+
+const mix = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const errorColor = e => e < 0 ? mix(NEUTRAL, COLD, clamp(-e / ERROR_LIMIT, 0, 1)) : mix(NEUTRAL, WARM, clamp(e / ERROR_LIMIT, 0, 1));
+const tempColor = t => mix(TEMP_LOW, TEMP_HIGH, clamp((t - TEMP_RANGE[0]) / (TEMP_RANGE[1] - TEMP_RANGE[0]), 0, 1));
+const degrees = v => v == null ? "n/a" : `${v.toFixed(1)} °C`;
+const signed = v => v == null ? "unavailable" : `${v > 0 ? "+" : ""}${v.toFixed(1)} °C`;
+
+// Local date + hour -> index of the UTC hour. On the night clocks go back one
+// local hour occurs twice; the first occurrence is used.
+const hourIndex = new Map();
+DATA.hours.forEach((h, i) => { const k = `${h.d} ${h.h}`; if (!hourIndex.has(k)) hourIndex.set(k, i); });
+const dates = [...new Set(DATA.hours.map(h => h.d))];
+
+const state = { date: DATA.default.date, hour: DATA.default.hour, lead: 1, mode: "forecast", station: null };
+const fromHash = new URLSearchParams(location.hash.slice(1));
+if (fromHash.get("date")) state.date = fromHash.get("date");
+if (fromHash.get("hour")) state.hour = +fromHash.get("hour");
+if (fromHash.get("lead")) state.lead = +fromHash.get("lead");
+if (fromHash.get("mode")) state.mode = fromHash.get("mode");
+if (fromHash.get("station")) state.station = +fromHash.get("station");
+
+const $ = id => document.getElementById(id);
+const dateInput = $("date"), hourSelect = $("hour");
+dateInput.min = dates[0]; dateInput.max = dates[dates.length - 1];
+for (let h = 0; h < 24; h++) hourSelect.add(new Option(`${String(h).padStart(2, "0")}:00`, h));
+for (let lead = 7; lead >= 1; lead--) $("leads").insertAdjacentHTML("beforeend", `<button data-lead="${lead}">J${lead}</button>`);
+$("lead0").insertAdjacentHTML("beforeend", `<button data-lead="0" title="Most recent model run, not a forecast issued in advance">J0 · current-run reference</button>`);
+
+const map = L.map("map", { zoomSnap: 0.25 });
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 16, attribution: "© OpenStreetMap contributors",
+}).addTo(map);
+map.fitBounds(DATA.stations.map(s => [s.lat, s.lon]), { padding: [40, 40] });
+const markers = DATA.stations.map((s, i) => {
+  const marker = L.circleMarker([s.lat, s.lon], { radius: 13, weight: 2 }).addTo(map);
+  marker.on("click", () => { state.station = s.id; render(); });
+  return marker;
+});
+
+const LABEL_OFFSET = { right: [12, 0], left: [-12, 0], top: [0, -12], bottom: [0, 12] };
+function labelSide(k) {
+  const points = DATA.stations.map(s => map.latLngToContainerPoint([s.lat, s.lon]));
+  let nearest = null, best = Infinity;
+  points.forEach((p, j) => { const d = j === k ? Infinity : p.distanceTo(points[k]); if (d < best) { best = d; nearest = p; } });
+  if (!nearest || best > 90) return "right";
+  const dx = points[k].x - nearest.x, dy = points[k].y - nearest.y;
+  return Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? "right" : "left") : (dy >= 0 ? "bottom" : "top");
+}
+
+// Values of every station for the current date, hour and lead.
+function current() {
+  const i = hourIndex.get(`${state.date} ${state.hour}`);
+  return DATA.stations.map((s, k) => {
+    if (i === undefined) return { station: s, inRange: false };
+    const forecast = DATA.forecast[state.lead][k][i];
+    const observed = DATA.observed[k][i];
+    const code = DATA.method[k][i];
+    return {
+      station: s, inRange: true, forecast, observed,
+      error: forecast != null && observed != null ? Math.round((forecast - observed) * 1000) / 1000 : null,
+      method: METHODS[code] || null, reason: STATUS[code] || null,
+    };
+  });
+}
+
+function render() {
+  dateInput.value = state.date; hourSelect.value = state.hour;
+  document.querySelectorAll("[data-lead]").forEach(b => b.setAttribute("aria-pressed", +b.dataset.lead === state.lead));
+  document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === state.mode));
+  location.replace("#" + new URLSearchParams({ date: state.date, hour: state.hour, lead: state.lead, mode: state.mode, ...(state.station ? { station: state.station } : {}) }));
+
+  const values = current();
+  const inRange = values[0].inRange;
+  const time = `${state.date} ${String(state.hour).padStart(2, "0")}:00 local time`;
+  const leadText = state.lead === 0 ? "J0 (current-run reference, not a forecast issued in advance)" : `J${state.lead} (issued ${state.lead} day${state.lead > 1 ? "s" : ""} ahead)`;
+  const titles = {
+    forecast: `Forecast temperature at ${leadText}`,
+    error: `Signed error, forecast − observed, at ${leadText}`,
+    observed: "Observed temperature",
+  };
+  $("summary").innerHTML = `${titles[state.mode]} <small>· ${time}</small>`;
+
+  const notice = $("notice");
+  if (!inRange) {
+    notice.hidden = false;
+    notice.textContent = `No data for ${time}. Loaded range: ${DATA.range.first} to ${DATA.range.last} (local time).`;
+  } else if (state.mode === "observed") {
+    notice.hidden = false;
+    notice.textContent = "Observed temperatures do not depend on the forecast lead.";
+  } else if (state.lead === 0) {
+    notice.hidden = false;
+    notice.textContent = "J0 is the current-run reference: the most recent model run, not a forecast issued in advance.";
+  } else notice.hidden = true;
+
+  values.forEach((v, k) => {
+    let value = null, label = "n/a", color = null;
+    if (v.inRange) {
+      if (state.mode === "forecast") { value = v.forecast; if (value != null) { label = value.toFixed(1) + "°"; color = tempColor(value); } }
+      if (state.mode === "observed") { value = v.observed; if (value != null) { label = value.toFixed(1) + "°"; color = tempColor(value); } }
+      if (state.mode === "error") { value = v.error; if (value != null) { label = (value > 0 ? "+" : "") + value.toFixed(1); color = errorColor(value); } }
+    }
+    const selected = state.station === v.station.id;
+    markers[k].setStyle(color
+      ? { fillColor: color, fillOpacity: 1, color: selected ? "#0b0b0b" : "#52514e", weight: selected ? 4 : 2, dashArray: null }
+      : { fillColor: "#ffffff", fillOpacity: 1, color: selected ? "#0b0b0b" : "#8a897f", weight: selected ? 4 : 2, dashArray: "4 4" });
+    // Put the value label on the side facing away from the nearest station,
+    // so labels of neighbouring stations do not cover each other.
+    const side = labelSide(k);
+    markers[k].unbindTooltip();
+    markers[k].bindTooltip(label, { permanent: true, direction: side, offset: LABEL_OFFSET[side], className: "value-label" });
+  });
+
+  $("rows").innerHTML = values.map(v => `<tr data-station="${v.station.id}" class="${state.station === v.station.id ? "selected" : ""}">
+      <td>${v.station.label}</td><td>${v.inRange ? degrees(v.forecast) : "n/a"}</td><td>${v.inRange ? degrees(v.observed) : "n/a"}</td>
+      <td>${v.inRange ? signed(v.error) : "unavailable"}</td><td>${v.inRange ? (v.method || v.reason || "n/a") : "outside loaded range"}</td></tr>`).join("");
+
+  const chosen = values.find(v => v.station.id === state.station);
+  $("details").innerHTML = !chosen ? "Click a station on the map or in the table." : `
+    <div style="font-weight:700;margin-bottom:8px">${chosen.station.label}</div>
+    <dl>
+      <dt>Forecast (${state.lead === 0 ? "J0 reference" : "J" + state.lead})</dt><dd>${chosen.inRange ? degrees(chosen.forecast) : "n/a"}</dd>
+      <dt>Observed reference</dt><dd>${chosen.inRange ? degrees(chosen.observed) : "n/a"}</dd>
+      <dt>Signed error</dt><dd>${chosen.inRange ? signed(chosen.error) : "unavailable"}</dd>
+      <dt>Observation method</dt><dd>${chosen.inRange ? (chosen.method || "none") : "n/a"}</dd>
+    </dl>
+    ${chosen.inRange && chosen.error == null ? `<p style="margin:8px 0 0;color:var(--text-2)">Error unavailable: ${(chosen.reason || "no observation").toLowerCase()}.</p>` : ""}`;
+
+  if (state.mode === "error") {
+    $("legend-title").textContent = "Signed error (forecast − observed)";
+    $("legend-bar").style.background = `linear-gradient(to right, ${mix(NEUTRAL, COLD, 1)}, ${mix(NEUTRAL, COLD, 0)}, ${mix(NEUTRAL, WARM, 1)})`;
+    $("legend-ticks").innerHTML = [-6, -3, 0, 3, 6].map(t => `<span>${t > 0 ? "+" : ""}${t}${Math.abs(t) === 6 ? (t < 0 ? " or less" : " or more") : ""}</span>`).join("");
+    $("legend-ends").innerHTML = "<span>Forecast too cold</span><span>Too warm</span>";
+    $("legend-missing-text").textContent = "Error unavailable (no observation)";
+  } else {
+    $("legend-title").textContent = state.mode === "forecast" ? "Forecast temperature (°C)" : "Observed temperature (°C)";
+    $("legend-bar").style.background = `linear-gradient(to right, ${mix(TEMP_LOW, TEMP_HIGH, 0)}, ${mix(TEMP_LOW, TEMP_HIGH, 1)})`;
+    $("legend-ticks").innerHTML = [0, 5, 10, 15, 20, 25].map(t => `<span>${t}</span>`).join("");
+    $("legend-ends").innerHTML = "<span>Colder</span><span>Warmer</span>";
+    $("legend-missing-text").textContent = state.mode === "forecast" ? "No forecast" : "No observation";
+  }
+}
+
+// Each control changes one field of the state and nothing else.
+dateInput.addEventListener("change", () => { if (dateInput.value) { state.date = dateInput.value; render(); } });
+hourSelect.addEventListener("change", () => { state.hour = +hourSelect.value; render(); });
+document.querySelectorAll("[data-lead]").forEach(b => b.addEventListener("click", () => { state.lead = +b.dataset.lead; render(); }));
+document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => { state.mode = b.dataset.mode; render(); }));
+$("rows").addEventListener("click", e => { const row = e.target.closest("tr"); if (row) { state.station = +row.dataset.station; render(); } });
+map.on("zoomend", render);
+window.__state = state;
+render();
+</script>
+</body>
+</html>

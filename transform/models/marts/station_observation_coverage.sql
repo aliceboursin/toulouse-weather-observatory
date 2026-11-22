@@ -23,12 +23,15 @@ counted as (
 )
 
 select
-    station_id,
-    target_hours,
-    future_hours,
-    target_hours - future_hours as non_future_hours,
-    comparable_hours,
-    missing_hours,
-    round(safe_divide(comparable_hours, target_hours - future_hours), 4)
+    counted.station_id,
+    stations.station_label,
+    counted.target_hours,
+    counted.future_hours,
+    counted.target_hours - counted.future_hours as non_future_hours,
+    counted.comparable_hours,
+    counted.missing_hours,
+    round(safe_divide(counted.comparable_hours, counted.target_hours - counted.future_hours), 4)
         as observation_coverage_rate
 from counted
+left join {{ ref('stg_stations') }} as stations
+    on stations.station_id = counted.station_id

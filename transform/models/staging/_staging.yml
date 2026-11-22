@@ -1,6 +1,35 @@
 version: 2
 
 models:
+  - name: stg_stations
+    description: >
+      One row per station, with a readable label. The source has no display
+      name, so the name is derived from the source dataset id and has no
+      accents ("Universite").
+    columns:
+      - name: station_id
+        description: Toulouse Métropole station number.
+        data_tests:
+          - not_null
+          - unique
+      - name: station_name
+        description: Name derived from the dataset id, for example 'Toulouse Soupetard'.
+        data_tests:
+          - not_null
+      - name: station_label
+        description: Zero-padded station number and name, for example '11 - Toulouse Soupetard'. Used as the display label in charts and filters.
+        data_tests:
+          - not_null
+          - unique
+      - name: city
+        description: Municipality of the station.
+      - name: latitude
+        description: Station latitude, in degrees.
+      - name: longitude
+        description: Station longitude, in degrees.
+      - name: altitude_m
+        description: Station altitude, in metres.
+
   - name: stg_observations
     description: >
       Cleaned station temperatures, one row per station and 15-minute slot.

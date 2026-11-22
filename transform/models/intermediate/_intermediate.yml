@@ -19,6 +19,12 @@ models:
         description: Forecast target hour t, in UTC.
         data_tests:
           - not_null
+      - name: valid_at_local
+        description: valid_at in Toulouse local time (Europe/Paris).
+      - name: valid_date_local
+        description: Local date of valid_at. Used by date filters.
+      - name: valid_hour_local
+        description: Local hour of valid_at, 0 to 23.
       - name: observed_at_t_c
         description: Reading timestamped t (mean over t - 15 min to t), in °C. Null if absent.
       - name: observed_at_t_plus_15_c

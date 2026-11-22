@@ -45,6 +45,10 @@ matched as (
 select
     station_id,
     valid_at,
+    -- Toulouse local time, for date and hour filters.
+    datetime(valid_at, 'Europe/Paris') as valid_at_local,
+    date(valid_at, 'Europe/Paris') as valid_date_local,
+    extract(hour from datetime(valid_at, 'Europe/Paris')) as valid_hour_local,
     observed_at_t_c,
     observed_at_t_plus_15_c,
     case

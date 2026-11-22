@@ -16,6 +16,10 @@ observations as (
 select
     forecasts.station_id,
     forecasts.valid_at,
+    -- Toulouse local time, for date and hour filters.
+    observations.valid_at_local,
+    observations.valid_date_local,
+    observations.valid_hour_local,
     forecasts.lead_days,
     forecasts.forecast_kind,
     forecasts.forecast_temperature_c,
