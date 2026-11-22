@@ -113,13 +113,24 @@ classified as (
 
 select
     * except (status_rank),
+    if(status_rank < 5, 'Check station', 'OK') as status,
+    -- The reason carries the measured value next to its limit.
     case status_rank
-        when 1 then 'Check station: no valid reading in 24 h'
-        when 2 then 'Check station: stale, no valid reading in {{ stale_after_hours }} h'
-        when 3 then 'Check station: flagged readings in 24 h'
-        when 4 then 'Check station: coverage below {{ (low_coverage_below * 100) | int }}% in 24 h'
-        else 'OK'
-    end as status,
+        when 1 then 'No valid reading in the 24 h before collection'
+        when 2 then concat(
+            'Latest valid reading ', format('%.1f', hours_since_latest_valid_reading),
+            ' h before collection (limit {{ stale_after_hours }} h)'
+        )
+        when 3 then concat(
+            cast(flagged_readings_24h as string),
+            ' flagged reading(s) of -50 °C in the 24 h before collection'
+        )
+        when 4 then concat(
+            format('%.0f', coverage_rate_24h * 100),
+            '% of expected readings in the 24 h before collection (limit {{ (low_coverage_below * 100) | int }}%)'
+        )
+        else 'Reporting normally'
+    end as status_reason,
     status_rank < 5 as needs_check,
     status_rank
 from classified

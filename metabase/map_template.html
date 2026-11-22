@@ -54,6 +54,10 @@
   .value-label { background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px;
                  font: 700 12px/1.5 Lato, "Segoe UI", system-ui, sans-serif; color: var(--text); box-shadow: none; }
   .value-label::before { display: none; }
+  .help p { margin: 0 0 8px; font-size: 13px; color: var(--text-2); }
+  .help p:last-child { margin-bottom: 0; }
+  .help b { color: var(--text); }
+  .snapshot { margin: 10px 16px 0; font-size: 13px; color: var(--text-2); }
   @media (max-width: 820px) { .main { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -87,10 +91,20 @@
       <div class="legend-missing"><span class="swatch-missing"></span><span id="legend-missing-text"></span></div>
     </div>
     <div class="panel"><h2>Selected station</h2><div id="details">Click a station on the map or in the table.</div></div>
+    <div class="panel help"><h2>How to read</h2>
+      <p><b>Observed reference</b>: the temperature the station measured around the target hour. It is the average of
+        its 15-minute readings at the hour and 15 minutes later. If only one of the two exists, that one is used
+        (see <i>Observation method</i>). If neither exists there is no reference, and the error is
+        <b>unavailable</b>, never 0.</p>
+      <p><b>J0</b> is not an observation: it is the forecast model's most recent run for that hour, shown as a
+        reference. J1 to J7 are forecasts made 1 to 7 days ahead.</p>
+      <p><b>Error</b> = forecast − observed reference. +2 °C means the forecast was 2 °C too warm.</p>
+    </div>
   </div>
 </div>
+<p class="snapshot" id="snapshot"></p>
 <table>
-  <thead><tr><th>Station</th><th>Forecast</th><th>Observed</th><th>Error (forecast − observed)</th><th>Observation method</th></tr></thead>
+  <thead><tr><th>Station</th><th>Forecast</th><th>Observed reference</th><th>Error (forecast − observed)</th><th>Observation method</th></tr></thead>
   <tbody id="rows"></tbody>
 </table>
 
@@ -131,7 +145,7 @@ const dateInput = $("date"), hourSelect = $("hour");
 dateInput.min = dates[0]; dateInput.max = dates[dates.length - 1];
 for (let h = 0; h < 24; h++) hourSelect.add(new Option(`${String(h).padStart(2, "0")}:00`, h));
 for (let lead = 7; lead >= 1; lead--) $("leads").insertAdjacentHTML("beforeend", `<button data-lead="${lead}">J${lead}</button>`);
-$("lead0").insertAdjacentHTML("beforeend", `<button data-lead="0" title="Most recent model run, not a forecast issued in advance">J0 · current-run reference</button>`);
+$("lead0").insertAdjacentHTML("beforeend", `<button data-lead="0" title="Most recent model run, not a forecast issued in advance">J0 · current-run reference (not a forecast)</button>`);
 
 const map = L.map("map", { zoomSnap: 0.25 });
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -196,11 +210,12 @@ function render() {
     notice.textContent = "Observed temperatures do not depend on the forecast lead.";
   } else if (state.lead === 0) {
     notice.hidden = false;
-    notice.textContent = "J0 is the current-run reference: the most recent model run, not a forecast issued in advance.";
+    notice.textContent = "J0 is the current-run reference: the forecast model's most recent run for this hour. It is a model value, not an observation and not a forecast issued in advance.";
   } else notice.hidden = true;
 
   values.forEach((v, k) => {
-    let value = null, label = "n/a", color = null;
+    let value = null, color = null;
+    let label = !v.inRange ? "no data" : state.mode === "forecast" ? "no forecast" : "no obs.";
     if (v.inRange) {
       if (state.mode === "forecast") { value = v.forecast; if (value != null) { label = value.toFixed(1) + "°"; color = tempColor(value); } }
       if (state.mode === "observed") { value = v.observed; if (value != null) { label = value.toFixed(1) + "°"; color = tempColor(value); } }
@@ -218,7 +233,7 @@ function render() {
   });
 
   $("rows").innerHTML = values.map(v => `<tr data-station="${v.station.id}" class="${state.station === v.station.id ? "selected" : ""}">
-      <td>${v.station.label}</td><td>${v.inRange ? degrees(v.forecast) : "n/a"}</td><td>${v.inRange ? degrees(v.observed) : "n/a"}</td>
+      <td>${v.station.label}</td><td>${v.inRange ? degrees(v.forecast) : "no data"}</td><td>${v.inRange ? (v.observed == null ? "no reading" : degrees(v.observed)) : "no data"}</td>
       <td>${v.inRange ? signed(v.error) : "unavailable"}</td><td>${v.inRange ? (v.method || v.reason || "n/a") : "outside loaded range"}</td></tr>`).join("");
 
   const chosen = values.find(v => v.station.id === state.station);
@@ -226,7 +241,7 @@ function render() {
     <div style="font-weight:700;margin-bottom:8px">${chosen.station.label}</div>
     <dl>
       <dt>Forecast (${state.lead === 0 ? "J0 reference" : "J" + state.lead})</dt><dd>${chosen.inRange ? degrees(chosen.forecast) : "n/a"}</dd>
-      <dt>Observed reference</dt><dd>${chosen.inRange ? degrees(chosen.observed) : "n/a"}</dd>
+      <dt>Observed reference</dt><dd>${chosen.inRange ? (chosen.observed == null ? "no reading" : degrees(chosen.observed)) : "no data"}</dd>
       <dt>Signed error</dt><dd>${chosen.inRange ? signed(chosen.error) : "unavailable"}</dd>
       <dt>Observation method</dt><dd>${chosen.inRange ? (chosen.method || "none") : "n/a"}</dd>
     </dl>
@@ -254,6 +269,7 @@ document.querySelectorAll("[data-lead]").forEach(b => b.addEventListener("click"
 document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => { state.mode = b.dataset.mode; render(); }));
 $("rows").addEventListener("click", e => { const row = e.target.closest("tr"); if (row) { state.station = +row.dataset.station; render(); } });
 map.on("zoomend", render);
+$("snapshot").textContent = `Map data: snapshot generated ${DATA.snapshot.generated} from data collected ${DATA.snapshot.collected}. It does not update on its own.`;
 window.__state = state;
 render();
 </script>

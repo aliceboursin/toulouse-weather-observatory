@@ -45,7 +45,17 @@ models:
       - name: longest_gap_hours
         description: Length of the station's longest missing interval in the loaded window, in hours.
       - name: status
-        description: "'OK', or 'Check station: ...' with the reason."
+        description: "'Check station' or 'OK'."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Check station', 'OK']
+      - name: status_reason
+        description: >
+          Why the station has its status, with the measured value next to its
+          limit, for example 'Latest valid reading 4.3 h before collection
+          (limit 2 h)'. 'Reporting normally' when the status is OK.
         data_tests:
           - not_null
       - name: needs_check

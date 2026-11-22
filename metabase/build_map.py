@@ -8,6 +8,7 @@ on http://localhost:3001, and the V2 dashboard shows it in its Map tab.
 """
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from client import DATA_DIR, Metabase
@@ -20,6 +21,11 @@ STATIONS_SQL = """
 SELECT station_id, station_label, latitude, longitude
 FROM analytics.stg_stations
 ORDER BY station_id
+"""
+
+COLLECTED_SQL = """
+SELECT FORMAT_TIMESTAMP('%Y-%m-%d %H:%M UTC', MAX(ingested_at)) AS collected
+FROM analytics.stg_forecasts
 """
 
 # One row per station and target hour, with the 8 lead times side by side.
@@ -65,6 +71,7 @@ def build(mb: Metabase) -> dict:
     database = next(d for d in mb.get("database")["data"] if d["name"] == DATABASE_NAME)
     stations = export(mb, database["id"], STATIONS_SQL)
     rows = export(mb, database["id"], HOURS_SQL)
+    collected = export(mb, database["id"], COLLECTED_SQL)[0]["collected"]
 
     station_index = {s["station_id"]: i for i, s in enumerate(stations)}
     hours, hour_index = [], {}
@@ -105,6 +112,11 @@ def build(mb: Metabase) -> dict:
             "last": f"{hours[-1]['d']} {hours[-1]['h']:02d}:00",
         },
         "default": {"date": max(with_observation), "hour": 16},
+        # When this page was generated, and which data collection it shows.
+        "snapshot": {
+            "generated": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+            "collected": collected,
+        },
     }
 
 

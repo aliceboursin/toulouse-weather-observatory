@@ -136,6 +136,12 @@ def main() -> None:
         check("current-run reference" in page.inner_text("#notice") and "current-run reference" in page.inner_text("#summary"), "J0 is labelled as the current-run reference")
         shot("4_forecast_j0")
 
+        # 8b. explanations and snapshot information
+        help_text = page.inner_text(".help")
+        check("15 minutes later" in help_text and "J0" in help_text and "never 0" in help_text, "the page explains the observed reference, distinguishes it from J0, and says a missing error is not 0")
+        snapshot = page.inner_text("#snapshot")
+        check("snapshot generated" in snapshot and "data collected 2026-11-19 11:16 UTC" in snapshot, f"snapshot line: '{snapshot}'")
+
         # 9. outside the loaded range
         page.click("[data-lead='1']")
         page.fill("#date", "2026-07-15")
