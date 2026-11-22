@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: int_station_hour_observations
+    description: >
+      The observation each forecast target hour is compared against, one row
+      per station and target hour. Uses the cleaned readings at the target
+      time t and at t + 15 minutes.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [station_id, valid_at]
+    columns:
+      - name: station_id
+        description: Toulouse Métropole station number.
+        data_tests:
+          - not_null
+      - name: valid_at
+        description: Forecast target hour t, in UTC.
+        data_tests:
+          - not_null
+      - name: observed_at_t_c
+        description: Reading timestamped t (mean over t - 15 min to t), in °C. Null if absent.
+      - name: observed_at_t_plus_15_c
+        description: Reading timestamped t + 15 min (mean over t to t + 15 min), in °C. Null if absent.
+      - name: observed_temperature_c
+        description: >
+          Observation used for the comparison, in °C: the equal-weight average
+          of both readings if both exist, otherwise the one that exists. Null
+          if neither exists.
+      - name: observation_method
+        description: >
+          'centered_30min' (both readings), 'preceding_15min' (only the
+          reading at t) or 'following_15min' (only the reading at t + 15 min).
+          Null if neither exists.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['centered_30min', 'preceding_15min', 'following_15min']
+      - name: observation_status
+        description: >
+          'observed' if at least one reading exists. Otherwise
+          'future_at_ingestion' if valid_at is after the forecast ingestion
+          time, or 'missing_observation' if it is not. The forecast ingestion
+          time is a proxy for the observation cutoff.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['observed', 'future_at_ingestion', 'missing_observation']

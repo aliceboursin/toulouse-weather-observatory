@@ -8,3 +8,9 @@ sources:
         description: >
           15-minute temperature records from the Toulouse Métropole stations,
           exactly as published (including -50 °C readings and duplicates).
+      - name: forecasts
+        description: >
+          Hourly Open-Meteo temperature forecasts at each station's
+          coordinates, one row per station, target hour and lead time.
+          The ingestion skips null temperatures, so a missing forecast is a
+          missing row.

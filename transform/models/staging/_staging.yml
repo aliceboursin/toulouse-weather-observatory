@@ -23,3 +23,49 @@ models:
         description: Number of valid readings that contribute to this row after the -50 °C filter. Can be greater than two.
         data_tests:
           - not_null
+
+  - name: stg_forecasts
+    description: >
+      Open-Meteo temperature forecasts, one row per station, target hour and
+      lead time. Rows are renamed and labelled, not filtered or deduplicated:
+      a duplicate or a gap in the raw table should fail a test.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [station_id, valid_at, lead_days]
+    columns:
+      - name: station_id
+        description: Toulouse Métropole station number.
+        data_tests:
+          - not_null
+      - name: valid_at
+        description: The hour the forecast is for, in UTC. The forecast is the instantaneous temperature at this time.
+        data_tests:
+          - not_null
+      - name: lead_days
+        description: >
+          Days between the forecast being issued and valid_at (1 to 7), or 0
+          for the most recent model run.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 3, 4, 5, 6, 7]
+                quote: false
+      - name: forecast_kind
+        description: >
+          'forecast' for leads 1 to 7. 'current_run_reference' for lead 0,
+          which is not a forecast issued in advance.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['forecast', 'current_run_reference']
+      - name: forecast_temperature_c
+        description: Forecast air temperature 2 m above ground, in °C.
+        data_tests:
+          - not_null
+      - name: ingested_at
+        description: When the forecast was fetched from Open-Meteo, in UTC.
+        data_tests:
+          - not_null

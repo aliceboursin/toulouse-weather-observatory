@@ -4,5 +4,4 @@ profile: toulouse_weather
 
 models:
   toulouse_weather:
-    staging:
-      +materialized: view
+    +materialized: view

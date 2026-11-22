@@ -1,6 +1,6 @@
 # Toulouse Data
 
-The goal of Toulouse Data is to measure how accurate temperature forecasts are for Toulouse, per weather station and per lead time (1 to 7 days ahead). The comparison is not built yet; see [Status](#status).
+Toulouse Data measures how accurate temperature forecasts are for Toulouse, per weather station and per lead time (1 to 7 days ahead).
 
 It uses two public sources:
 
@@ -13,8 +13,10 @@ It uses two public sources:
 |---|---|
 | Local Python ingestion of stations, observations and forecasts | works |
 | Manual load of the raw files into BigQuery | works |
-| dbt staging model `stg_observations`, with tests | works |
-| Forecast comparison (forecast error per station and lead time) | planned |
+| dbt staging models `stg_observations` and `stg_forecasts`, with tests | works |
+| Forecast comparison, observation coverage and reliability summaries in dbt | works |
+
+Everything has been run on one window so far, 2026-10-20 to 2026-11-19. See [Limits](#limits).
 
 ## Requirements
 
@@ -92,7 +94,7 @@ Check the row counts against the ingestion output:
 bq query --use_legacy_sql=false "SELECT COUNT(*) AS row_count FROM raw.observations"
 ```
 
-## 3. Build and test the staging model
+## 3. Build and test the dbt models
 
 dbt needs application-default credentials. Create them once:
 
@@ -100,7 +102,7 @@ dbt needs application-default credentials. Create them once:
 gcloud auth application-default login
 ```
 
-Build the model and run its tests:
+Build the models and run their tests:
 
 ```
 uv run dbt build --project-dir transform --profiles-dir transform
@@ -109,24 +111,153 @@ uv run dbt build --project-dir transform --profiles-dir transform
 The run ends with:
 
 ```
-Done. PASS=6 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=6
+Done. PASS=58 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=58
 ```
 
-The first run creates the `analytics` dataset in the EU. The model is the view `analytics.stg_observations`, defined in `transform/models/staging/stg_observations.sql`.
+The first run creates the `analytics` dataset in the EU. All models are views in that dataset, defined under `transform/models/`:
+
+| View | One row per | Purpose |
+|---|---|---|
+| `stg_observations` | station and 15-minute slot | cleaned observations |
+| `stg_forecasts` | station, target hour and lead time | forecasts, with lead 0 labelled |
+| `int_station_hour_observations` | station and target hour | the observation that forecasts for that hour are compared against |
+| `forecast_comparison` | station, target hour and lead time | every forecast with its observation and error |
+| `station_observation_coverage` | station | observation coverage rate |
+| `observation_coverage` | station and coverage category | distribution of target hours across categories |
+| `forecast_reliability` | station and lead time (1 to 7) | default reliability metrics |
+| `current_run_reference_error` | station | the same metrics for lead 0 |
 
 ### What `stg_observations` does
 
-The view has one row per station and 15-minute slot, with the columns `station_id`, `observed_at`, `temperature_c` and `reading_count`.
+The view has the columns `station_id`, `observed_at`, `temperature_c` and `reading_count`.
 
-- It removes readings of exactly -50 °C, a value flagged during profiling. In the window below, 465 readings on four stations are exactly -50 °C, and the next lowest reading is 1.8 °C.
+- It removes readings of exactly -50 °C, a value flagged during profiling. In the window 2026-10-20 to 2026-11-19, 465 readings on four stations are exactly -50 °C, and the next lowest reading is 1.8 °C.
 - It averages duplicates. The source sometimes publishes several readings for the same station and timestamp, with temperatures that can differ (9.4 and 10.7 °C in one case) and no field that says which is correct. The view averages them, rounded to 2 decimals.
-- `reading_count` is the number of valid readings that contribute to the row after the -50 °C filter. It is 1 for most rows and can be greater than two; in the window below its maximum is 2.
+- `reading_count` is the number of valid readings that contribute to the row after the -50 °C filter. It is 1 for most rows and can be greater than two; in that window its maximum is 2.
 - It keeps the 15-minute resolution. It does not resample to hourly values or fill gaps: a slot with no valid reading has no row.
 
-For the window 2026-10-20 to 2026-11-19, the 21,218 raw rows become 20,732 rows: the filter removes the 465 readings and 21 duplicate pairs are averaged.
+In that window, the 21,218 raw rows become 20,732 rows: the filter removes the 465 readings and 21 duplicate pairs are averaged.
 
 The tests check that no column is null and that no station has two rows for the same `observed_at` (`transform/tests/assert_stg_observations_unique.sql`).
 
-## Planned
+### What `stg_forecasts` does
 
-Forecast comparison: a staging model for `raw.forecasts` and a model that joins forecasts to observations and computes the forecast error per station and lead time. The rule for matching an hourly forecast to 15-minute observations is not decided yet.
+The view has the columns `station_id`, `valid_at`, `lead_days`, `forecast_kind`, `forecast_temperature_c` and `ingested_at`. It renames and labels rows. It does not filter or deduplicate: a duplicate or a gap in `raw.forecasts` fails a test.
+
+`forecast_kind` is `forecast` for leads 1 to 7 and `current_run_reference` for lead 0. Lead 0 is the most recent model run, not a forecast issued in advance.
+
+The tests check that:
+
+- no column is null;
+- `(station_id, valid_at, lead_days)` is unique;
+- `lead_days` is between 0 and 7;
+- every station and target hour has all 8 lead times (`transform/tests/assert_stg_forecasts_all_leads_present.sql`). The ingestion skips null temperatures, so a missing forecast is a missing row, and this test is what detects it. It checks the station-hours present in the data: it cannot detect a station-hour that is missing for every lead time.
+
+For the window 2026-10-20 to 2026-11-19, the view has 59,520 rows, which is the full grid of 10 stations × 744 hours × 8 lead times.
+
+### How forecasts are matched to observations
+
+A forecast is the instantaneous temperature at its target time t (UTC). A station reading timestamped t is the mean over the 15 minutes ending at t. For each station and target hour, `int_station_hour_observations` looks up the cleaned readings at t and at t + 15 minutes:
+
+| Readings found | Observation used | `observation_method` |
+|---|---|---|
+| both | their equal-weight average, covering t - 15 min to t + 15 min | `centered_30min` |
+| only the one at t | that reading | `preceding_15min` |
+| only the one at t + 15 min | that reading | `following_15min` |
+| neither | none | null |
+
+`forecast_comparison` keeps every forecast row. `error_c` is the forecast minus the observation, so a positive value means the forecast was too warm. `absolute_error_c` is its magnitude. Both are null when there is no observation.
+
+### Coverage
+
+`observation_status` says why a target hour has no observation:
+
+- `future_at_ingestion`: `valid_at` is after the forecast's `ingested_at`, so the hour had not happened yet.
+- `missing_observation`: the hour was in the past and the station has no valid reading at t or t + 15 minutes.
+
+The forecast ingestion time is a proxy for the observation cutoff. It is accurate here because one ingestion run fetches observations and forecasts together.
+
+Both coverage views count each station and target hour once, whatever the number of lead times.
+
+#### Coverage rate
+
+The default observation coverage rate is the number of comparable station-hours divided by the number of non-future station-hours. A station-hour is comparable when it has an observation, by any of the three methods. Future hours are reported in their own column and are not in the denominator, because no observation could exist for them yet.
+
+`station_observation_coverage` has one row per station, with `target_hours`, `future_hours`, `non_future_hours`, `comparable_hours`, `missing_hours` and `observation_coverage_rate`.
+
+```
+bq query --use_legacy_sql=false "SELECT * FROM analytics.station_observation_coverage ORDER BY station_id"
+```
+
+For the window 2026-10-20 to 2026-11-19, every station has 744 target hours, of which 12 are future and 732 are non-future:
+
+| Station | Comparable hours | Missing hours | Coverage rate |
+|---|---|---|---|
+| 2 | 724 | 8 | 98.9% |
+| 11 | 3 | 729 | 0.4% |
+| 12 | 710 | 22 | 97.0% |
+| 13 | 730 | 2 | 99.7% |
+| 23 | 659 | 73 | 90.0% |
+| 33 | 120 | 612 | 16.4% |
+| 37 | 725 | 7 | 99.0% |
+| 42 | 590 | 142 | 80.6% |
+| 58 | 345 | 387 | 47.1% |
+| 62 | 708 | 24 | 96.7% |
+| All | 5,314 | 2,006 | 72.6% |
+
+The gaps are in the source. Station 11, for example, published 5 readings in this window before the ingestion ran, and 3 of them fall on a target hour.
+
+#### Distribution across categories
+
+`observation_coverage` has one row per station and `coverage_category`. `share_of_station_hours` is the category's hours divided by all of the station's target hours, future hours included. It shows how target hours are distributed across categories and is not the coverage rate.
+
+```
+bq query --use_legacy_sql=false "SELECT * FROM analytics.observation_coverage ORDER BY station_id, coverage_category"
+```
+
+For the same window, all stations together (7,440 station-hours):
+
+| `coverage_category` | Station-hours | Share of all target hours |
+|---|---|---|
+| `centered_30min` | 5,045 | 67.8% |
+| `missing_observation` | 2,006 | 27.0% |
+| `preceding_15min` | 156 | 2.1% |
+| `future_at_ingestion` | 120 | 1.6% |
+| `following_15min` | 113 | 1.5% |
+
+### Reliability metrics
+
+`forecast_reliability` has one row per station and lead time, for leads 1 to 7, with:
+
+- `valid_comparisons`: the number of forecasts with a computed error;
+- `mean_absolute_error_c`: the mean of `absolute_error_c`;
+- `mean_signed_error_c`: the mean of `error_c`.
+
+`current_run_reference_error` has the same columns for lead 0, per station. Lead 0 is kept out of `forecast_reliability` because it is not a forecast issued in advance.
+
+```
+bq query --use_legacy_sql=false "SELECT * FROM analytics.forecast_reliability ORDER BY station_id, lead_days"
+```
+
+For the window 2026-10-20 to 2026-11-19, with all stations pooled (5,314 valid comparisons per lead time):
+
+| Lead time (days) | Mean absolute error (°C) | Mean signed error (°C) |
+|---|---|---|
+| 0 (current-run reference) | 0.83 | -0.09 |
+| 1 | 1.16 | -0.09 |
+| 2 | 1.39 | -0.46 |
+| 3 | 1.55 | -0.27 |
+| 4 | 1.79 | 0.22 |
+| 5 | 1.83 | 0.28 |
+| 6 | 2.31 | 0.65 |
+| 7 | 2.47 | 0.84 |
+
+## Limits
+
+- One window only. The results above come from a single 31-day load in autumn. `bq load --replace` keeps one window per table, and loading several windows is not supported yet.
+- Uneven station coverage. Station 11 has 3 valid comparisons per lead time, station 33 has 120 and station 58 has 345, against 590 to 730 for the other seven. All stations stay in `forecast_reliability`, with no minimum number of comparisons, so their rows rest on few values; check `valid_comparisons` before reading a score.
+- Fallback observations are not centred. A `preceding_15min` observation is centred 7.5 minutes before the forecast time and a `following_15min` one 7.5 minutes after.
+- The future/missing split relies on `ingested_at` from the forecasts. If observations and forecasts are ever ingested at different times, hours near the cutoff can be put in the wrong category.
+- Forecasts are for a model grid cell, not the station itself. The cell centre is 380 to 1,330 m from the station.
+- Lead time is in whole days. The Previous Runs API does not give the hour a forecast was issued.
+- The models are views, and in the BigQuery sandbox they expire after 60 days. Running the dbt build again recreates them.
