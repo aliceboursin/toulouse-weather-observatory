@@ -113,7 +113,7 @@ const DATA = /*DATA*/;
 
 // Fixed scales, so colours mean the same thing at every date, hour and lead.
 const ERROR_LIMIT = 6;          // °C, diverging scale from -6 to +6, centred on 0
-const TEMP_RANGE = [0, 25];     // °C, sequential scale
+const TEMP_RANGE = [0, 40];     // °C, sequential scale; the data spans -3 to 42
 const COLD = [42, 120, 214], WARM = [227, 73, 72], NEUTRAL = [240, 239, 236];
 const TEMP_LOW = [205, 226, 251], TEMP_HIGH = [13, 54, 107];
 const METHODS = { c: "Centered 30 min", p: "Preceding 15 min", f: "Following 15 min" };
@@ -153,19 +153,25 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 map.fitBounds(DATA.stations.map(s => [s.lat, s.lon]), { padding: [40, 40] });
 const markers = DATA.stations.map((s, i) => {
-  const marker = L.circleMarker([s.lat, s.lon], { radius: 13, weight: 2 }).addTo(map);
+  const marker = L.circleMarker([s.lat, s.lon], { radius: 10, weight: 2 }).addTo(map);
   marker.on("click", () => { state.station = s.id; render(); });
   return marker;
 });
 
 const LABEL_OFFSET = { right: [12, 0], left: [-12, 0], top: [0, -12], bottom: [0, 12] };
+// Approximate centre of a value label on each side of its marker, in pixels.
+const LABEL_CENTRE = { right: [34, 0], left: [-34, 0], top: [0, -24], bottom: [0, 24] };
+// The side whose label lands farthest from every other station's marker.
 function labelSide(k) {
   const points = DATA.stations.map(s => map.latLngToContainerPoint([s.lat, s.lon]));
-  let nearest = null, best = Infinity;
-  points.forEach((p, j) => { const d = j === k ? Infinity : p.distanceTo(points[k]); if (d < best) { best = d; nearest = p; } });
-  if (!nearest || best > 90) return "right";
-  const dx = points[k].x - nearest.x, dy = points[k].y - nearest.y;
-  return Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? "right" : "left") : (dy >= 0 ? "bottom" : "top");
+  let bestSide = "right", bestGap = -1;
+  for (const [side, [dx, dy]] of Object.entries(LABEL_CENTRE)) {
+    const centre = L.point(points[k].x + dx, points[k].y + dy);
+    // Markers sit closer horizontally than a label is wide, so weigh x less.
+    const gap = Math.min(...points.map((p, j) => j === k ? Infinity : Math.hypot((p.x - centre.x) / 2, p.y - centre.y)));
+    if (gap > bestGap + 0.5) { bestGap = gap; bestSide = side; }
+  }
+  return bestSide;
 }
 
 // Values of every station for the current date, hour and lead.
@@ -256,7 +262,7 @@ function render() {
   } else {
     $("legend-title").textContent = state.mode === "forecast" ? "Forecast temperature (°C)" : "Observed temperature (°C)";
     $("legend-bar").style.background = `linear-gradient(to right, ${mix(TEMP_LOW, TEMP_HIGH, 0)}, ${mix(TEMP_LOW, TEMP_HIGH, 1)})`;
-    $("legend-ticks").innerHTML = [0, 5, 10, 15, 20, 25].map(t => `<span>${t}</span>`).join("");
+    $("legend-ticks").innerHTML = [0, 10, 20, 30, 40].map(t => `<span>${t}</span>`).join("");
     $("legend-ends").innerHTML = "<span>Colder</span><span>Warmer</span>";
     $("legend-missing-text").textContent = state.mode === "forecast" ? "No forecast" : "No observation";
   }

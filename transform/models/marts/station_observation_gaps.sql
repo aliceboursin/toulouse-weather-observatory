@@ -14,10 +14,13 @@ with raw as (
 snapshot as (
 
     select
-        max(ingested_at) as collected_at,
+        -- Collection time of the load that holds the most recent observation.
+        -- A backfill of older dates is ingested later, so max(ingested_at)
+        -- would wrongly make the newest data look freshly collected.
+        array_agg(ingested_at order by observed_at desc limit 1)[offset(0)] as collected_at,
         timestamp(date(min(observed_at))) as window_start,
         -- Last 15-minute slot at or before the collection time.
-        timestamp_seconds(div(unix_seconds(max(ingested_at)), 900) * 900) as last_slot
+        timestamp_seconds(div(unix_seconds(array_agg(ingested_at order by observed_at desc limit 1)[offset(0)]), 900) * 900) as last_slot
     from raw
 
 ),

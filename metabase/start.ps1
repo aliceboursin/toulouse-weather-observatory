@@ -2,7 +2,7 @@
 # you press Ctrl+C. Needs Java 21 and .metabase\metabase.jar (see README).
 #
 # Also serves the interactive map page (.metabase\map) on
-# http://localhost:3001, which the V2 dashboard shows in its Map tab.
+# http://localhost:3001, which the dashboard shows in its Temperature map tab.
 #
 # Metabase's own database (users, questions, dashboards, the BigQuery
 # connection) is the H2 file .metabase\metabase.db.mv.db. The .metabase

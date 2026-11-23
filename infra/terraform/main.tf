@@ -1,4 +1,4 @@
-# Temporary demo deployment of the Toulouse Data dashboard.
+# Hosted demo of the Toulouse Weather Observatory dashboard.
 #
 #   Cloud Run service   Metabase, with the Cloud SQL Auth Proxy as a sidecar
 #   Cloud SQL           PostgreSQL holding Metabase's own data (users,
@@ -269,6 +269,13 @@ resource "google_cloud_run_v2_service" "metabase" {
     }
   }
 
+  # Cloud Run fills in a service-level scaling block with its defaults.
+  # Scaling is set per revision in the template above, so ignore that block
+  # instead of planning a change on every run.
+  lifecycle {
+    ignore_changes = [scaling]
+  }
+
   depends_on = [
     google_project_iam_member.metabase,
     google_secret_manager_secret_iam_member.metabase,
@@ -277,13 +284,20 @@ resource "google_cloud_run_v2_service" "metabase" {
   ]
 }
 
-# Anyone with the URL can reach Metabase's login page. Seeing a dashboard
-# still requires a Metabase account.
+# Anyone with the URL can reach Metabase. Without a Metabase account they
+# only see what has a public link: the dashboard, once build_dashboard.py has
+# run with PUBLIC_DASHBOARD=1.
 resource "google_cloud_run_v2_service_iam_member" "public" {
   name     = google_cloud_run_v2_service.metabase.name
   location = google_cloud_run_v2_service.metabase.location
   role     = "roles/run.invoker"
   member   = "allUsers"
+
+  # If the service is ever recreated, its access rules go with it. Recreate
+  # this one too, or the URL answers 403 Forbidden.
+  lifecycle {
+    replace_triggered_by = [google_cloud_run_v2_service.metabase.uid]
+  }
 }
 
 # --------------------------------------------------------------------- map

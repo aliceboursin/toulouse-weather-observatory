@@ -34,8 +34,9 @@ def fetch_stations() -> list[dict]:
 def fetch_observations(station_id: int, start: date, end: date) -> list[dict]:
     """Raw 15-minute temperature records for one station, start and end inclusive (UTC).
 
-    Rows are returned as published: the -50 °C dead-sensor sentinel and gaps
-    are left for the transformation layer to handle.
+    Rows are returned as published: readings of exactly -50 °C (flagged as
+    invalid during data profiling) and gaps are left for the transformation
+    layer to handle.
     """
     # heure_utc is typed as text on most datasets, so we filter on
     # heure_de_paris (a real datetime) and ask the API to render it in UTC.

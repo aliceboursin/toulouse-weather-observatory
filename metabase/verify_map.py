@@ -9,16 +9,16 @@ every station with forecast_comparison, and tests a missing observation, the
 J0 reference and a date outside the loaded range.
 """
 
+import os
 import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-from client import Metabase
+from client import DATABASE_NAME, Metabase
 
-MAP_URL = "http://localhost:3001/index.html"
+MAP_URL = os.environ.get("MAP_URL", "http://localhost:3001/index.html")
 DATE, HOUR = "2026-11-18", 16
-DATABASE_NAME = "Toulouse Data (BigQuery)"
 
 
 def expected_rows(mb: Metabase, lead: int) -> dict[str, dict]:
@@ -64,6 +64,7 @@ def check(condition: bool, message: str) -> None:
 
 
 def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")  # messages contain °C and arrows; Windows defaults to cp1252
     shots = Path(sys.argv[1]) if len(sys.argv) > 1 else None
     mb = Metabase().login()
 
@@ -144,7 +145,7 @@ def main() -> None:
 
         # 9. outside the loaded range
         page.click("[data-lead='1']")
-        page.fill("#date", "2026-07-15")
+        page.fill("#date", "2026-01-15")
         page.dispatch_event("#date", "change")
         check("No data" in page.inner_text("#notice") and "Loaded range" in page.inner_text("#notice"), "a date outside the data shows the empty state with the loaded range")
         check(state(page)["hour"] == HOUR, "hour still 16:00 after picking an empty date")

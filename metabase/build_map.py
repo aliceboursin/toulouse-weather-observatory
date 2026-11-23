@@ -4,16 +4,16 @@
 
 Writes .metabase/map/index.html: the page in map_template.html with a snapshot
 of forecast_comparison embedded in it. metabase/start.ps1 serves that folder
-on http://localhost:3001, and the V2 dashboard shows it in its Map tab.
+on http://localhost:3001, and the dashboard shows it in its Temperature map
+tab. For the hosted demo, upload the file to the map bucket (see README).
 """
 
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from client import DATA_DIR, Metabase
+from client import DATA_DIR, DATABASE_NAME, Metabase
 
-DATABASE_NAME = "Toulouse Data (BigQuery)"
 TEMPLATE = Path(__file__).with_name("map_template.html")
 OUTPUT = DATA_DIR / "map" / "index.html"
 
@@ -24,8 +24,8 @@ ORDER BY station_id
 """
 
 COLLECTED_SQL = """
-SELECT FORMAT_TIMESTAMP('%Y-%m-%d %H:%M UTC', MAX(ingested_at)) AS collected
-FROM analytics.stg_forecasts
+SELECT FORMAT_TIMESTAMP('%Y-%m-%d %H:%M UTC', MAX(collected_at)) AS collected
+FROM analytics.station_monitoring
 """
 
 # One row per station and target hour, with the 8 lead times side by side.

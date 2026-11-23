@@ -13,7 +13,10 @@ with raw as (
 snapshot as (
 
     select
-        max(ingested_at) as collected_at,
+        -- Collection time of the load that holds the most recent observation.
+        -- A backfill of older dates is ingested later, so max(ingested_at)
+        -- would wrongly make the newest data look freshly collected.
+        array_agg(ingested_at order by observed_at desc limit 1)[offset(0)] as collected_at,
         date(min(observed_at)) as first_day
     from raw
 

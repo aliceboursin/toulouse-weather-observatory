@@ -1,18 +1,17 @@
-"""Connect the local Metabase to the BigQuery `analytics` dataset.
+"""Connect Metabase to the BigQuery `analytics` dataset.
 
     uv run python metabase/connect_bigquery.py <path-to-service-account-key.json>
 
-The key is stored in Metabase's own database (.metabase/). The key file is
-not needed afterwards.
+Targets the local Metabase unless METABASE_URL is set. The key is stored in
+Metabase's own database; the key file is not needed afterwards.
 """
 
 import sys
 import time
 from pathlib import Path
 
-from client import Metabase
+from client import DATABASE_NAME, Metabase
 
-DATABASE_NAME = "Toulouse Data (BigQuery)"
 PROJECT_ID = "toulouse-weather-demo"
 DATASET = "analytics"
 
@@ -41,7 +40,7 @@ def main() -> None:
     # The first sync runs in the background; wait until the views show up.
     for _ in range(60):
         tables = mb.get(f"database/{database_id}/metadata")["tables"]
-        if any(t["name"] == "forecast_reliability" and t["fields"] for t in tables):
+        if any(t["name"] == "forecast_comparison" and t["fields"] for t in tables):
             break
         time.sleep(5)
     print(f"database id {database_id}: {sorted(t['name'] for t in tables)}")

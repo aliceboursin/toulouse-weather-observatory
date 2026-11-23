@@ -8,5 +8,16 @@ transform/logs/
 transform/dbt_packages/
 transform/.user.yml
 
+# Terraform: providers, local state (holds the database password and the
+# BigQuery key), saved plans and variable files
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.tfplan
+infra/terraform/*.tfvars
+
+# Service-account key written while connecting Metabase to BigQuery
+*-key.json
+
 # Local Metabase: JAR, its database (holds the BigQuery key), admin credentials
 .metabase/

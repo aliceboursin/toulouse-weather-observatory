@@ -1,6 +1,7 @@
 """Archived temperature forecasts from the Open-Meteo Previous Runs API."""
 
-from datetime import date
+import time
+from datetime import date, timedelta
 
 import requests
 
@@ -13,12 +14,28 @@ def _variable(lead_days: int) -> str:
     return f"temperature_2m_previous_day{lead_days}"
 
 
+# Days per API request. A long window is fetched in several requests.
+CHUNK_DAYS = 31
+
+
 def fetch_forecasts(stations: list[dict], start: date, end: date) -> list[dict]:
     """Hourly forecasts at each station's coordinates, one row per lead time.
 
     For every hour between start and end (inclusive, UTC) the API returns the
     temperature that was forecast 0 to 7 days ahead of that hour.
     """
+    rows = []
+    chunk_start = start
+    while chunk_start <= end:
+        chunk_end = min(chunk_start + timedelta(days=CHUNK_DAYS - 1), end)
+        rows += _fetch_chunk(stations, chunk_start, chunk_end)
+        chunk_start = chunk_end + timedelta(days=1)
+        if chunk_start <= end:
+            time.sleep(2)  # stay well under the API's per-minute limit
+    return rows
+
+
+def _fetch_chunk(stations: list[dict], start: date, end: date) -> list[dict]:
     response = requests.get(
         OPEN_METEO_PREVIOUS_RUNS_API,
         params={

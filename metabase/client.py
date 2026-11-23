@@ -1,15 +1,27 @@
-"""Minimal client for the local Metabase API, shared by the setup scripts."""
+"""Minimal client for the Metabase API, shared by the build and verify scripts.
+
+Targets the local Metabase by default. Set the METABASE_URL environment
+variable to target another one, for example the hosted demo.
+"""
 
 import json
+import os
 import secrets
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
-METABASE_URL = "http://localhost:3000"
+METABASE_URL = os.environ.get("METABASE_URL", "http://localhost:3000").rstrip("/")
 DATA_DIR = Path(__file__).resolve().parent.parent / ".metabase"
-CREDENTIALS_FILE = DATA_DIR / "admin-credentials.json"
+# One admin account, and one credentials file, per Metabase.
+_HOST = urlparse(METABASE_URL).hostname
+CREDENTIALS_FILE = DATA_DIR / (
+    "admin-credentials.json" if _HOST == "localhost" else f"admin-credentials-{_HOST}.json"
+)
 ADMIN_EMAIL = "admin@toulouse-data.local"
+# Name of the BigQuery connection inside Metabase.
+DATABASE_NAME = "Toulouse Data (BigQuery)"
 
 
 class Metabase:
@@ -42,7 +54,7 @@ class Metabase:
         return self.call("PUT", path, json=body)
 
     def login(self) -> "Metabase":
-        """Log in as the local admin, creating the account on first use."""
+        """Log in as the admin, creating the account on first use."""
         if CREDENTIALS_FILE.exists():
             credentials = json.loads(CREDENTIALS_FILE.read_text(encoding="utf-8"))
         else:
@@ -77,5 +89,5 @@ class Metabase:
         )
         DATA_DIR.mkdir(exist_ok=True)
         CREDENTIALS_FILE.write_text(json.dumps(credentials, indent=2), encoding="utf-8")
-        print(f"Created the local admin; credentials are in {CREDENTIALS_FILE}")
+        print(f"Created the admin account; credentials are in {CREDENTIALS_FILE}")
         return credentials
